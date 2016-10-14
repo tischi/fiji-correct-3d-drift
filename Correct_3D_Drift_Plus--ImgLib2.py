@@ -19,7 +19,7 @@
 from ij import VirtualStack, IJ, CompositeImage, ImageStack, ImagePlus
 from ij.process import ColorProcessor
 from ij.plugin import HyperStackConverter
-from ij.io import DirectoryChooser, FileSaver
+from ij.io import DirectoryChooser, FileSaver, SaveDialog
 from ij.gui import GenericDialog, YesNoCancelDialog, Roi
 from mpicbg.imglib.image import ImagePlusAdapter
 from mpicbg.imglib.algorithm.fft import PhaseCorrelation
@@ -27,7 +27,7 @@ from org.scijava.vecmath import Point3i  #from javax.vecmath import Point3i # ja
 from org.scijava.vecmath import Point3f  #from javax.vecmath import Point3f # java6
 from java.io import File, FilenameFilter
 from java.lang import Integer
-import math
+import math, os, os.path
 
 # sub-pixel translation using imglib2
 from net.imagej.axis import Axes
@@ -49,10 +49,13 @@ def translate_single_stack_using_imglib2(imp, dx, dy, dz):
   interpolant = Views.interpolate(converted, NLinearInterpolatorFactory())
   
   # translate
-  if imp.getDimensions()[2]>1:
+  if imp.getNDimensions()==3:
     transformed = RealViews.affine(interpolant, Translation3D(dx, dy, dz))
-  else:
+  elif imp.getNDimensions()==2:
     transformed = RealViews.affine(interpolant, Translation2D(dx, dy))
+  else:
+    IJ.log("Can only work on 2D or 3D stacks")
+    return None
   
   cropped = Views.interval(transformed, img)
   # wrap back into bit depth of input image and return
@@ -498,6 +501,7 @@ def getOptions(imp):
   gd.addCheckbox("Sub_pixel drift correction (possibly needed for slow drifts)?", False)
   gd.addCheckbox("Edge_enhance images for possibly improved drift detection?", False)
   gd.addCheckbox("Use virtualstack for saving the results to disk to save RAM?", False)
+  gd.addCheckbox("Only compute drift vectors?", False)
   gd.addMessage("If you put a ROI, drift will only be computed in this region;\n the ROI will be moved along with the drift to follow your structure of interest.")
   gd.showDialog()
   if gd.wasCanceled():
@@ -507,15 +511,56 @@ def getOptions(imp):
   subpixel = gd.getNextBoolean()
   process = gd.getNextBoolean()
   virtual = gd.getNextBoolean()
-  dt = gd.getNextNumber()
-  return channel, virtual, multi_time_scale, subpixel, process
+  only_compute = gd.getNextBoolean()
+  return channel, virtual, multi_time_scale, subpixel, process, only_compute
 
 
-# Need function to get colors for each channel. Loop channels extracting color model and then apply to registered
+def save_shifts(shifts):
+  sd = SaveDialog('please select shift file for saving', 'shifts', '.txt')
+  fp = os.path.join(sd.getDirectory(),sd.getFileName())
+  print(fp)
+  ddd
+  
+  f = open(fp)
+  for line in f:
+    if '(TransformParameters' in line:
+        transformation = re.findall(r'[-+]?\d+[\.]?\d*', line)
+        transformation.append(fn)
+        transformation.append(tbModel.getFileAbsolutePathString(iDataSet, "Input_"+p["ch_ref"], "IMG"))
+        transformations.append(transformation)
+        break
+    f.close()
+   
+  write_vector_to_tab_delimited_file(transformations, os.path.join(p['output_folder'],'transformation_parameters.txt'))
+    
+  for i in range(len(transformations[0])-2):
+    trafo = [float(t[i]) for t in transformations]
+    #write_vector_to_file(trafo, os.path.join(p['output_folder'],'transformation_parameter_'+str(i)+".txt"))
+    scatter_plot('trafo', range(len(trafo)), trafo, 'frame', 't'+str(i))
+    #
+    # apply some smoothing to the transformations
+    #
+    #median_trafo = running_median(trafo, p['median_window'])
+    #write_vector_to_file(median_trafo, os.path.join(p['output_folder'],'transformation_parameter_median_'+str(i)+".txt"))
+    #scatter_plot('trafo_median', range(len(trafo)),  median_trafo, 'frame', 't'+str(i))
+    #for j in range(len(trafo)):
+    #  transformations[j][i] = median_trafo[j]
+
+  #for i, fn in enumerate(files):
+  #  transformation_line = " ".join('%.10f' % x for x  in transformations[i])
+  #  transformation_line = '(TransformParameters '+transformation_line+')\n'
+  #  changeLine(fn, '(TransformParameters', transformation_line)
+    
+  return(1)
+  
+
+
 
 def run():
 
   IJ.log("Correct_3D_Drift")
+  
+  #save_shifts([])
   
   imp = IJ.getImage()
   if imp is None:
@@ -532,7 +577,7 @@ def run():
 
   options = getOptions(imp)
   if options is not None:
-    channel, virtual, multi_time_scale, subpixel, process = options
+    channel, virtual, multi_time_scale, subpixel, process, only_compute = options
     print "channel="+str(channel)
     print "multi_time_scale="+str(multi_time_scale)
     print "virtual="+str(virtual)
@@ -572,32 +617,37 @@ def run():
 
   # invert measured shifts to make them the correction
   shifts = invert_shifts(shifts)
+  print(shifts)
+  
   
   # apply shifts
-  IJ.log("  applying shifts..."); print("\nAPPLYING SHIFTS:")
-  if subpixel:
-    registered_imp = register_hyperstack_subpixel(imp, channel, shifts, target_folder, virtual)
-  else:
-    shifts = convert_shifts_to_integer(shifts)
-    registered_imp = register_hyperstack(imp, channel, shifts, target_folder, virtual)
-  
-  
-  if virtual is True:
-    if 1 == imp.getNChannels():
-      ip=imp.getProcessor()
-      ip2=registered_imp.getProcessor()
-      ip2.setColorModel(ip.getCurrentColorModel())
-      registered_imp.show()
+  if not only_compute:
+    
+    IJ.log("  applying shifts..."); print("\nAPPLYING SHIFTS:")
+    
+    if subpixel:
+      registered_imp = register_hyperstack_subpixel(imp, channel, shifts, target_folder, virtual)
     else:
+      shifts = convert_shifts_to_integer(shifts)
+      registered_imp = register_hyperstack(imp, channel, shifts, target_folder, virtual)
+    
+    
+    if virtual is True:
+      if 1 == imp.getNChannels():
+        ip=imp.getProcessor()
+        ip2=registered_imp.getProcessor()
+        ip2.setColorModel(ip.getCurrentColorModel())
+        registered_imp.show()
+      else:
     	registered_imp.copyLuts(imp)
     	registered_imp.show()
-  else:
-    if 1 ==imp.getNChannels():
-    	registered_imp.show()
     else:
-    	registered_imp.copyLuts(imp)
-    	registered_imp.show()
+      if 1 ==imp.getNChannels():
+        registered_imp.show()
+      else:
+        registered_imp.copyLuts(imp)
+        registered_imp.show()
   
-  registered_imp.show()
+    registered_imp.show()
 
 run()
