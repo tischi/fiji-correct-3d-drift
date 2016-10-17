@@ -514,74 +514,36 @@ def getOptions(imp):
   only_compute = gd.getNextBoolean()
   return channel, virtual, multi_time_scale, subpixel, process, only_compute
 
-
-def save_shifts(shifts):
+def save_shifts(shifts, roi):
   sd = SaveDialog('please select shift file for saving', 'shifts', '.txt')
   fp = os.path.join(sd.getDirectory(),sd.getFileName())
-  print(fp)
-  ddd
-  
-  f = open(fp)
-  for line in f:
-    if '(TransformParameters' in line:
-        transformation = re.findall(r'[-+]?\d+[\.]?\d*', line)
-        transformation.append(fn)
-        transformation.append(tbModel.getFileAbsolutePathString(iDataSet, "Input_"+p["ch_ref"], "IMG"))
-        transformations.append(transformation)
-        break
-    f.close()
-   
-  write_vector_to_tab_delimited_file(transformations, os.path.join(p['output_folder'],'transformation_parameters.txt'))
-    
-  for i in range(len(transformations[0])-2):
-    trafo = [float(t[i]) for t in transformations]
-    #write_vector_to_file(trafo, os.path.join(p['output_folder'],'transformation_parameter_'+str(i)+".txt"))
-    scatter_plot('trafo', range(len(trafo)), trafo, 'frame', 't'+str(i))
-    #
-    # apply some smoothing to the transformations
-    #
-    #median_trafo = running_median(trafo, p['median_window'])
-    #write_vector_to_file(median_trafo, os.path.join(p['output_folder'],'transformation_parameter_median_'+str(i)+".txt"))
-    #scatter_plot('trafo_median', range(len(trafo)),  median_trafo, 'frame', 't'+str(i))
-    #for j in range(len(trafo)):
-    #  transformations[j][i] = median_trafo[j]
-
-  #for i, fn in enumerate(files):
-  #  transformation_line = " ".join('%.10f' % x for x  in transformations[i])
-  #  transformation_line = '(TransformParameters '+transformation_line+')\n'
-  #  changeLine(fn, '(TransformParameters', transformation_line)
-    
-  return(1)
-  
-
+  f = open(fp, 'w')
+  txt = []
+  txt.append("ROI zero-based")
+  txt.append("\nx_min\ty_min\tz_min\tx_max\ty_max\tz_max")
+  txt.append("\n"+str(roi[0])+"\t"+str(roi[1])+"\t"+str(roi[2])+"\t"+str(roi[3])+"\t"+str(roi[4])+"\t"+str(roi[5]))
+  txt.append("\nShifts")
+  txt.append("\ndx\tdy\tdz")  
+  for shift in shifts:
+    txt.append("\n"+str(shift.x)+"\t"+str(shift.y)+"\t"+str(shift.z))
+  f.writelines(txt)
+  f.close()
 
 
 def run():
 
   IJ.log("Correct_3D_Drift")
-  
-  #save_shifts([])
-  
+    
   imp = IJ.getImage()
   if imp is None:
     return
-  #if not imp.isHyperStack():
-  #  print "Not a hyper stack!"
-  #  return
   if 1 == imp.getNFrames():
     print "There is only one time frame!"
     return
-  #if 1 == imp.getNSlices():
-  #  print "To register slices of a stack, use 'Register Virtual Stack Slices'"
-  #  return
 
   options = getOptions(imp)
   if options is not None:
     channel, virtual, multi_time_scale, subpixel, process, only_compute = options
-    print "channel="+str(channel)
-    print "multi_time_scale="+str(multi_time_scale)
-    print "virtual="+str(virtual)
-    print "process="+str(process)
     
   if virtual is True:
     dc = DirectoryChooser("Choose target folder to save image sequence")
@@ -649,5 +611,25 @@ def run():
         registered_imp.show()
   
     registered_imp.show()
-
+  
+  else:
+   
+    if imp.getRoi(): 
+      xmin = imp.getRoi().getBounds().x
+      ymin = imp.getRoi().getBounds().y
+      zmin = 0
+      xmax = xmin + imp.getRoi().getBounds().width - 1
+      ymax = ymin + imp.getRoi().getBounds().height - 1
+      zmax = imp.getNSlices()-1  
+    else:
+      xmin = 0
+      ymin = 0
+      zmin = 0
+      xmax = imp.getWidth() - 1
+      ymax = imp.getHeight() - 1
+      zmax = imp.getNSlices() - 1  
+    
+    save_shifts(shifts, [xmin, ymin, zmin, xmax, ymax, zmax])
+    IJ.log("  saving shifts...")
+    
 run()
