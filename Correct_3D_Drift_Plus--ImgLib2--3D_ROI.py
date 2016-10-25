@@ -27,7 +27,7 @@ from org.scijava.vecmath import Point3i  #from javax.vecmath import Point3i # ja
 from org.scijava.vecmath import Point3f  #from javax.vecmath import Point3f # java6
 from java.io import File, FilenameFilter
 from java.lang import Integer
-import math, os, os.path
+import math, os, os.path, time
 
 # sub-pixel translation using imglib2
 from net.imagej.axis import Axes
@@ -81,6 +81,11 @@ def compute_stitch(imp1, imp2):
   phc = PhaseCorrelation(ImagePlusAdapter.wrap(imp1), ImagePlusAdapter.wrap(imp2), 5, True)
   phc.process()
   p = phc.getShift().getPosition()
+  #print(p)
+  #pp = phc.getAllShifts()
+  #for p in pp:
+  #  print(p.getPosition())
+  #ddd
   if len(p)==3: # 3D data
     p3 = p
   elif len(p)==2: # 2D data: add zero shift
@@ -198,8 +203,6 @@ def compute_and_update_frame_translations_dt(imp, channel, dt, process, roiz, sh
   nt = imp.getNFrames()
   # get roi (could be None)
   roi = imp.getRoi()
-  if roi:
-    print "ROI is at", roi.getBounds()   
   # init shifts
   if shifts == None:
     shifts = []
@@ -212,25 +215,29 @@ def compute_and_update_frame_translations_dt(imp, channel, dt, process, roiz, sh
       t = nt-1 # nt-1 is the last shift (0-based)
     IJ.log("      between frames "+str(t-dt+1)+" and "+str(t+1))      
     # get (cropped and processed) image at t-dt
+    start_time = time.time()   
     roi1, roiz1 = shift_roi(imp, roi, roiz, shifts[t-dt])
     imp1 = extract_frame_process_roi(imp, t+1-dt, channel, process, roi1, roiz1)
     # get (cropped and processed) image at t
     roi2, roiz2 = shift_roi(imp, roi, roiz, shifts[t])
     imp2 = extract_frame_process_roi(imp, t+1, channel, process, roi2, roiz2)
+    print("    prepared images in [s]: "+str(round(time.time()-start_time,3)))
     if roi:
-      print "ROI at frame",t-dt+1,"is",roi1.getBounds(), roiz1.z, roiz1.z + roiz1.depth
-      print "ROI at frame",t+1,"is",roi2.getBounds(), roiz2.z, roiz2.z + roiz2.depth  
+      print "ROI at frame",t-dt+1,"is", roi1.getBounds().x, roi1.getBounds().y, roiz1.z
+      print "ROI at frame",t+1,"is", roi2.getBounds().x, roi2.getBounds().y, roiz2.z   
     # compute shift
+    start_time = time.time()   
     local_new_shift = compute_stitch(imp2, imp1)
+    print("    computed shift in [s]: "+str(round(time.time()-start_time,3)))
     if roi: # total shift is shift of rois plus measured drift
-      print "correcting measured drift of",local_new_shift,"for roi shift:",shift_between_rois(roi2, roiz2, roi1, roiz1)
+      print "measured drift of",local_new_shift,"for roi shift:",shift_between_rois(roi2, roiz2, roi1, roiz1)
       local_new_shift = add_Point3f(local_new_shift, shift_between_rois(roi2, roiz2, roi1, roiz1))
     # determine the shift that we knew alrady
     local_shift = subtract_Point3f(shifts[t],shifts[t-dt])
     # compute difference between new and old measurement (which come from different dt)   
     add_shift = subtract_Point3f(local_new_shift,local_shift)
-    print "++ old shift between %s and %s: dx=%s, dy=%s, dz=%s" % (int(t-dt+1),int(t+1),local_shift.x,local_shift.y,local_shift.z)
-    print "++ add shift between %s and %s: dx=%s, dy=%s, dz=%s" % (int(t-dt+1),int(t+1),add_shift.x,add_shift.y,add_shift.z)
+    #print "++ old shift between %s and %s: dx=%s, dy=%s, dz=%s" % (int(t-dt+1),int(t+1),local_shift.x,local_shift.y,local_shift.z)
+    #print "++ add shift between %s and %s: dx=%s, dy=%s, dz=%s" % (int(t-dt+1),int(t+1),add_shift.x,add_shift.y,add_shift.z)
     # update shifts from t-dt to the end (assuming that the measured local shift will presist till the end)
     for i,tt in enumerate(range(t-dt,nt)):
       # for i>dt below expression basically is a linear drift predicition for the frames at tt>t
@@ -239,7 +246,7 @@ def compute_and_update_frame_translations_dt(imp, channel, dt, process, roiz, sh
       shifts[tt].x += 1.0*i/dt * add_shift.x
       shifts[tt].y += 1.0*i/dt * add_shift.y
       shifts[tt].z += 1.0*i/dt * add_shift.z
-      print "updated shift till frame",tt+1,"is",shifts[tt].x,shifts[tt].y,shifts[tt].z
+      # print "updated shift till frame",tt+1,"is",shifts[tt].x,shifts[tt].y,shifts[tt].z
     IJ.showProgress(1.0*t/(nt+1))
   
   IJ.showProgress(1)
@@ -604,7 +611,6 @@ def run():
 
   # invert measured shifts to make them the correction
   shifts = invert_shifts(shifts)
-  print(shifts)
   
   # apply shifts
   if not only_compute:
