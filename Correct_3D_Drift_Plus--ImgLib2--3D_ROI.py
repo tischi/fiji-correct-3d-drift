@@ -30,7 +30,6 @@ from org.scijava.vecmath import Point3f  #from javax.vecmath import Point3f # ja
 from java.io import File, FilenameFilter
 from java.lang import Integer
 import math, os, os.path, time
-import VirtualStackOfStacks
 
 # sub-pixel translation using imglib2
 from net.imagej.axis import Axes
@@ -146,27 +145,27 @@ def extract_cropped_frame_from_VirtualStackOfStacks(imp, frame, channel, roi, ro
     y = roi.getBounds().y
     w = roi.getBounds().width
     h = roi.getBounds().height
+    z = roiz.z
+    d = roiz.depth
   else:
     x = 0
     y = 0
     w = imp.width()
     h = imp.height()
-    
-  stack = imp.getStack() # multi-time point virtual stack
-  extracted_stack = ImageStack(w, h, None)
-  
-  for s in range(roiz.z, roiz.z+roiz.depth):
-    i = imp.getStackIndex(channel, s, frame)  
-    extracted_stack.addSlice(str(s), stack.getCroppedProcessor(i, x, w, y, h))
-  
-  return extracted_stack
+    z = 0
+    d = imp.getNSlices()
+
+  print(frame, channel, z,d,x,w,y,h)
+  stack =  imp.getStack()  
+  imp_cropped = stack.getCroppedFrameAsImagePlus(frame,channel,z,d,x,w,y,h);
+  #imp_cropped.show()
+   
+  return imp_cropped
 
 def extract_frame_process_roi(imp, frame, channel, process, roi, roiz):
   
-  if( imp.getStack().getClass().getName() == "VirtualStackOfStacks"):
-    imp_frame = ImagePlus("", extract_cropped_frame_from_VirtualStackOfStacks(imp, frame, channel, roi, roiz)).duplicate()
-    imp_frame.show()
-    ddd
+  if( imp.getStack().getClass().getName() == "ct.vss.VirtualStackOfStacks"):
+    imp_frame = extract_cropped_frame_from_VirtualStackOfStacks(imp, frame-1, channel, roi, roiz)
   else:
     # extract frame and channel 
     imp_frame = ImagePlus("", extract_frame(imp, frame, channel, roiz)).duplicate()
@@ -593,6 +592,7 @@ def getOptions(imp):
   gd.addCheckbox("Sub_pixel drift correction (possibly needed for slow drifts)?", False)
   gd.addCheckbox("Edge_enhance images for possibly improved drift detection?", False)
   gd.addCheckbox("Use virtualstack for saving the results to disk to save RAM?", False)
+  gd.addCheckbox("Drift correct only data inside ROI?", False)
   gd.addCheckbox("Only compute drift vectors?", False)
   gd.addMessage("If you put a ROI, drift will only be computed in this region;\n the ROI will be moved along with the drift to follow your structure of interest.")
   gd.addSlider("z_min of ROI", 1, imp.getNSlices(), 1)
@@ -607,10 +607,11 @@ def getOptions(imp):
   subpixel = gd.getNextBoolean()
   process = gd.getNextBoolean()
   virtual = gd.getNextBoolean()
+  only_roi = gd.getNextBoolean()
   only_compute = gd.getNextBoolean()
   roi_z_min = int(gd.getNextNumber())
   roi_z_max = int(gd.getNextNumber())
-  return channel, method, bg_value, virtual, multi_time_scale, subpixel, process, only_compute, roi_z_min, roi_z_max
+  return channel, method, bg_value, virtual, multi_time_scale, subpixel, process, only_roi, only_compute, roi_z_min, roi_z_max
 
 def save_shifts(shifts, roi):
   sd = SaveDialog('please select shift file for saving', 'shifts', '.txt')
@@ -632,8 +633,8 @@ def run():
 
   IJ.log("Correct_3D_Drift")
 
-  vss = VirtualStackOfStacks(0,0,0,None,"",None)
-  ddd
+  #vss = VirtualStackOfStacks(0,0,0,None,"",None)
+  #ddd
   
   
   imp = IJ.getImage()
@@ -644,7 +645,7 @@ def run():
     return
   options = getOptions(imp)
   if options is not None:
-    channel, method, bg_level, virtual, multi_time_scale, subpixel, process, only_compute, roi_z_min, roi_z_max = options
+    channel, method, bg_level, virtual, multi_time_scale, subpixel, process, only_roi, only_compute, roi_z_min, roi_z_max = options
     roiz = RoiZ(roi_z_min, roi_z_max - roi_z_min + 1)
         
   if virtual is True:
@@ -691,6 +692,7 @@ def run():
     if subpixel:
       registered_imp = register_hyperstack_subpixel(imp, channel, shifts, target_folder, virtual)
     else:
+      sdfsfs
       shifts = convert_shifts_to_integer(shifts)
       registered_imp = register_hyperstack(imp, channel, shifts, target_folder, virtual)
     
