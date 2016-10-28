@@ -1,5 +1,4 @@
 # @OpService ops
-# @ImgPlus img
 
 # Robert Bryson-Richardson and Albert Cardona 2010-10-08 at Estoril, Portugal
 # EMBO Developmental Imaging course by Gabriel Martins
@@ -19,7 +18,7 @@
 #           the ROI is moved along with the detected drift thereby tracking the structure of interest
 # - macro recording is compatible with previous version
 
-from ij import VirtualStack, IJ, CompositeImage, ImageStack, ImagePlus
+from ij import VirtualStack, IJ, CompositeImage, ImageStack, ImagePlus 
 from ij.process import ColorProcessor
 from ij.plugin import HyperStackConverter
 from ij.io import DirectoryChooser, FileSaver, SaveDialog
@@ -31,6 +30,7 @@ from org.scijava.vecmath import Point3f  #from javax.vecmath import Point3f # ja
 from java.io import File, FilenameFilter
 from java.lang import Integer
 import math, os, os.path, time
+import VirtualStackOfStacks
 
 # sub-pixel translation using imglib2
 from net.imagej.axis import Axes
@@ -100,8 +100,12 @@ def compute_shift_using_phasecorrelation(imp1, imp2, bg_level):
 def center_of_mass_imglib2(imp, bg_level):
   img = ImagePlusImgs.from(imp)
   #img = ops.math().subtract(img, 20)
+  start_time = time.time()
   IJ.run(imp, "Subtract...", "value="+str(bg_level)+" stack");
+  print("        subtract in [s]: "+str(round(time.time()-start_time,3)))    
+  start_time = time.time()
   com = ops.geom().centerOfGravity(img)
+  print("        center of mass in [s]: "+str(round(time.time()-start_time,3)))    
   if com.numDimensions()==3: # 3D data
     p3 = [com.getFloatPosition(0),com.getFloatPosition(1),com.getFloatPosition(2)]
   elif com.numDimensions()==2: # 2D data: put zero shift in z
@@ -131,17 +135,46 @@ def extract_frame(imp, frame, channel, roiz):
     vs.addSlice(str(s), stack.getProcessor(i))
   return vs
 
-#
-# To-do: this should be optimised for speed
-#
-def extract_frame_process_roi(imp, frame, channel, process, roi, roiz):
-  # extract frame and channel 
-  imp_frame = ImagePlus("", extract_frame(imp, frame, channel, roiz)).duplicate()
-  # check for roi and crop
+
+def extract_cropped_frame_from_VirtualStackOfStacks(imp, frame, channel, roi, roiz):
+  """ From a VirtualStackOfStacks that is a hyperstack, contained in imp,
+  extract the timepoint, roi and selected z-planes as an ImageStack, and return it.
+  It will do so only for the given channel. """
+  
   if roi != None:
-    #print roi.getBounds()
-    imp_frame.setRoi(roi)
-    IJ.run(imp_frame, "Crop", "")
+    x = roi.getBounds().x
+    y = roi.getBounds().y
+    w = roi.getBounds().width
+    h = roi.getBounds().height
+  else:
+    x = 0
+    y = 0
+    w = imp.width()
+    h = imp.height()
+    
+  stack = imp.getStack() # multi-time point virtual stack
+  extracted_stack = ImageStack(w, h, None)
+  
+  for s in range(roiz.z, roiz.z+roiz.depth):
+    i = imp.getStackIndex(channel, s, frame)  
+    extracted_stack.addSlice(str(s), stack.getCroppedProcessor(i, x, w, y, h))
+  
+  return extracted_stack
+
+def extract_frame_process_roi(imp, frame, channel, process, roi, roiz):
+  
+  if( imp.getStack().getClass().getName() == "VirtualStackOfStacks"):
+    imp_frame = ImagePlus("", extract_cropped_frame_from_VirtualStackOfStacks(imp, frame, channel, roi, roiz)).duplicate()
+    imp_frame.show()
+    ddd
+  else:
+    # extract frame and channel 
+    imp_frame = ImagePlus("", extract_frame(imp, frame, channel, roiz)).duplicate()
+    # check for roi and crop
+    if roi != None:
+      #print roi.getBounds()
+      imp_frame.setRoi(roi)
+      IJ.run(imp_frame, "Crop", "")
   # process  
   if process:
     IJ.run(imp_frame, "Mean 3D...", "x=1 y=1 z=0");
@@ -248,18 +281,19 @@ def compute_and_update_frame_translations_dt(imp, channel, method, bg_level, dt,
     imp2 = extract_frame_process_roi(imp, t+1, channel, process, roi2, roiz2)
     print("    prepared images in [s]: "+str(round(time.time()-start_time,3)))
     if roi:
-      print "ROI at frame",t-dt+1,"is", roi1.getBounds().x, roi1.getBounds().y, roiz1.z
-      print "ROI at frame",t+1,"is", roi2.getBounds().x, roi2.getBounds().y, roiz2.z   
+      print "    ROI at frame",t-dt+1,"is", roi1.getBounds().x, roi1.getBounds().y, roiz1.z
+      print "    ROI at frame",t+1,"is", roi2.getBounds().x, roi2.getBounds().y, roiz2.z   
     # compute shift
+    start_time = time.time()  
     if (method == 1):   
       local_new_shift = compute_shift_using_phasecorrelation(imp1, imp2, bg_level)
     elif (method == 2):
       local_new_shift = compute_shift_using_center_of_mass(imp1, imp2, bg_level)
     print("    computed shift in [s]: "+str(round(time.time()-start_time,3)))
     if roi: # total shift is shift of rois plus measured drift
-      print "measured drift of",local_new_shift,"for roi shift:",shift_between_rois(roi2, roiz2, roi1, roiz1)
+      print "    measured additional shift of",local_new_shift,"on top of roi shift:",shift_between_rois(roi2, roiz2, roi1, roiz1)
       local_new_shift = add_Point3f(local_new_shift, shift_between_rois(roi2, roiz2, roi1, roiz1))
-    print("    shift: "+str(round(local_new_shift.x,3))+" "+str(round(local_new_shift.y,3))+" "+str(round(local_new_shift.z,3)))
+    print("    total local shift: "+str(round(local_new_shift.x,3))+" "+str(round(local_new_shift.y,3))+" "+str(round(local_new_shift.z,3)))
     # determine the shift that we knew alrady
     local_shift = subtract_Point3f(shifts[t],shifts[t-dt])
     # compute difference between new and old measurement (which come from different dt)   
@@ -587,9 +621,9 @@ def save_shifts(shifts, roi):
   txt.append("\nx_min\ty_min\tz_min\tx_max\ty_max\tz_max")
   txt.append("\n"+str(roi[0])+"\t"+str(roi[1])+"\t"+str(roi[2])+"\t"+str(roi[3])+"\t"+str(roi[4])+"\t"+str(roi[5]))
   txt.append("\nShifts")
-  txt.append("\ndx\tdy\tdz")  
-  for shift in shifts:
-    txt.append("\n"+str(shift.x)+"\t"+str(shift.y)+"\t"+str(shift.z))
+  txt.append("\nt\tdx\tdy\tdz")  
+  for it,shift in enumerate(shifts):
+    txt.append("\n"+str(it)+"\t"+str(shift.x)+"\t"+str(shift.y)+"\t"+str(shift.z))
   f.writelines(txt)
   f.close()
 
@@ -597,14 +631,17 @@ def save_shifts(shifts, roi):
 def run():
 
   IJ.log("Correct_3D_Drift")
-    
+
+  vss = VirtualStackOfStacks(0,0,0,None,"",None)
+  ddd
+  
+  
   imp = IJ.getImage()
   if imp is None:
     return
   if 1 == imp.getNFrames():
     print "There is only one time frame!"
     return
-
   options = getOptions(imp)
   if options is not None:
     channel, method, bg_level, virtual, multi_time_scale, subpixel, process, only_compute, roi_z_min, roi_z_max = options
@@ -642,13 +679,14 @@ def run():
         shifts = compute_and_update_frame_translations_dt(imp, channel, method, dt_max, process, roiz, shifts)
         break
 
-  # invert measured shifts to make them the correction
-  shifts = invert_shifts(shifts)
   
   # apply shifts
   if not only_compute:
     
     IJ.log("  applying shifts..."); print("\nAPPLYING SHIFTS:")
+    
+    # invert measured shifts to make them the correction
+    shifts = invert_shifts(shifts)
     
     if subpixel:
       registered_imp = register_hyperstack_subpixel(imp, channel, shifts, target_folder, virtual)
