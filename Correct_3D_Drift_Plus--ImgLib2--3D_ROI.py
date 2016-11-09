@@ -674,10 +674,10 @@ def run():
     for dt in dts:
       if dt < dt_max:
         IJ.log("    at frame shifts of "+str(dt)) 
-        shifts = compute_and_update_frame_translations_dt(imp, channel, method, dt, process, roiz, shifts)
+        shifts = compute_and_update_frame_translations_dt(imp, channel, method, bg_level, dt, process, roiz, shifts)
       else: 
         IJ.log("    at frame shifts of "+str(dt_max));
-        shifts = compute_and_update_frame_translations_dt(imp, channel, method, dt_max, process, roiz, shifts)
+        shifts = compute_and_update_frame_translations_dt(imp, channel, method, bg_level, dt_max, process, roiz, shifts)
         break
 
   
@@ -692,7 +692,6 @@ def run():
     if subpixel:
       registered_imp = register_hyperstack_subpixel(imp, channel, shifts, target_folder, virtual)
     else:
-      sdfsfs
       shifts = convert_shifts_to_integer(shifts)
       registered_imp = register_hyperstack(imp, channel, shifts, target_folder, virtual)
     
