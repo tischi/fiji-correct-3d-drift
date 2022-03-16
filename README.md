@@ -1,3 +1,1 @@
-# fiji-correct-3d-drift
-
-Jython script of 3D drift correction in Fiji.
+the code here is out of date, please go here: https://github.com/fiji/Correct_3D_Drift
